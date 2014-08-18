@@ -4,10 +4,10 @@ import at.archistar.helper.ShareHelper;
 import at.archistar.helper.ShareMacHelper;
 
 import java.security.NoSuchAlgorithmException;
-import java.util.Arrays;
 import java.util.Iterator;
 import java.util.LinkedList;
 import java.util.List;
+import java.util.Queue;
 
 import at.archistar.crypto.data.Share;
 import at.archistar.crypto.data.VSSShare;
@@ -52,7 +52,7 @@ public class CevallosUSRSS extends SecretSharing {
     public CevallosUSRSS(int n, int k, RandomSource rng) throws WeakSecurityException {
         super(n, k);
         
-        if(k-1 >= n/3 && k-1 < n/2)
+        if(!((k-1) * 3 >= n && (k-1) * 2 < n))
             throw new ImpossibleException("this scheme only works when n/3 <= t < n/2 (where t = k-1)");
         
         /* this scheme requires ShamirPSS and Berlekamp-Welch decoder */
@@ -87,47 +87,51 @@ public class CevallosUSRSS extends SecretSharing {
 
     @Override
     public byte[] reconstruct(Share[] shares) throws ReconstructionException {
-        VSSShare[] cshares = safeCast(shares); // we need access to its inner fields
-        
-        /* create an accepts table */
+        // we need access to its inner fields
+        VSSShare[] cshares = safeCast(shares);
+        Queue<Integer> queue = new LinkedList<Integer>();
+        List<Share> valid = new LinkedList<Share>();
+
+        // accepts[i][j] = true means participant j accepts i
         boolean[][] accepts = new boolean[n + 1][n + 1];
-        
-        for (VSSShare s1 : cshares)
-            for (VSSShare s2 : cshares)
-                try { accepts[s1.getId()][s2.getId()] = mac.verifyMAC(s1.getShare(), s1.getMacs().get((byte) s2.getId()), s2.getMacKeys().get((byte) s1.getId())); }
-                catch (Exception e) {} // catch faulty shares
-        
-        /* build a group I such that only shares with at least k accepts are in there */
-        List<Share> valid = new LinkedList<Share>(Arrays.asList(ShareHelper.extractUnderlyingShares(cshares)));
-        
-        boolean finished = false;
-        while(!finished) {
-            finished = true;
-            
-            Iterator<Share> i1 = valid.iterator();
-            while(i1.hasNext()) {
-                Share s1 = i1.next();
-            
-                /* count the number of accepts for the current share */
-                int count = 0;
-                for(Share s2 : valid)
-                    try { count += (accepts[s1.getId()][s2.getId()]) ? 1 : 0; }
-                    catch (Exception e) {} // ArrayIndexOutOfBoundsException may be thrown when x is not valid
-                
-                if(count < k) { // share is not accepted by enough others
-                    i1.remove();
-                    
-                    /* start over */
-                    finished = false;
-                    break;
+        int a[] = new int[n + 1];
+        for (VSSShare s1 : cshares) {
+            for (VSSShare s2 : cshares) {
+                try {
+                    accepts[s1.getId()][s2.getId()] = mac.verifyMAC(
+                            s1.getShare(), s1.getMacs().get((byte) s2.getId()),
+                            s2.getMacKeys().get((byte) s1.getId()));
+                    a[s1.getId()] += accepts[s1.getId()][s2.getId()] ? 1 : 0;
+                } catch (Exception e) {
+                    throw new ImpossibleException(e);
+                } // catch faulty shares
+            }
+            if (a[s1.getId()] < k) {
+                queue.add(s1.getId());
+            } else {
+                valid.add(s1.getShare());
+            }
+        }
+
+        while (valid.size() >= k && !queue.isEmpty()) {
+            int s1id = queue.poll();
+            for (Iterator<Share> it = valid.iterator(); it.hasNext();) {
+                Share s2 = it.next();
+                if (accepts[s2.getId()][s1id]) {
+                    a[s2.getId()]--;
+                    if (a[s2.getId()] < k) {
+                        queue.add(s2.getId());
+                        it.remove();
+                    }
                 }
             }
         }
-        
-        if(valid.size() >= k) // not enough shares for reconstruction
+
+        if (valid.size() >= k) {
             return sharing.reconstruct(valid.toArray(new Share[valid.size()]));
-        
-        throw new ReconstructionException(); // if there weren't enough valid shares
+        } else {
+            throw new ReconstructionException();
+        }
     }
     
     /**
