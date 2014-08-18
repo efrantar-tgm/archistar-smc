@@ -87,51 +87,51 @@ public class CevallosUSRSS extends SecretSharing {
 
     @Override
     public byte[] reconstruct(Share[] shares) throws ReconstructionException {
-        VSSShare[] cshares = safeCast(shares); // we need access to its inner fields
-        
+        // we need access to its inner fields
+        VSSShare[] cshares = safeCast(shares);
         Queue<Integer> queue = new LinkedList<Integer>();
         List<Share> valid = new LinkedList<Share>();
-        
-		// accepts[i][j] = true means participant j accepts i
-		boolean[][] accepts = new boolean[n + 1][n + 1]; 
-		int a[] = new int[n + 1];
-		for (VSSShare s1 : cshares) {
-			for (VSSShare s2 : cshares) {
-				try {
-					accepts[s1.getId()][s2.getId()] = mac.verifyMAC(
-							s1.getShare(), s1.getMacs().get((byte) s2.getId()),
-							s2.getMacKeys().get((byte) s1.getId()));
-					a[s1.getId()] += accepts[s1.getId()][s2.getId()] ? 1 : 0;
-				} catch (Exception e) {
-					throw new ImpossibleException(e);
-				} // catch faulty shares
-			}
-			if (a[s1.getId()] < k) {
-				queue.add(s1.getId());
-			} else {
-				valid.add(s1.getShare());
-			}
-		}
-        
-		while (valid.size() >= k && !queue.isEmpty()) {
-			int s1id = queue.poll();
-			for (Iterator<Share> it = valid.iterator(); it.hasNext();) {
-				Share s2 = it.next();
-				if (accepts[s2.getId()][s1id]) {
-					a[s2.getId()]--;
-					if (a[s2.getId()] < k) {
-						queue.add(s2.getId());
-						it.remove();
-					}
-				}
-			}
-		}
 
-		if (valid.size() >= k) {
-			return sharing.reconstruct(valid.toArray(new Share[valid.size()]));
-		} else {
-			throw new ReconstructionException();
-		}
+        // accepts[i][j] = true means participant j accepts i
+        boolean[][] accepts = new boolean[n + 1][n + 1];
+        int a[] = new int[n + 1];
+        for (VSSShare s1 : cshares) {
+            for (VSSShare s2 : cshares) {
+                try {
+                    accepts[s1.getId()][s2.getId()] = mac.verifyMAC(
+                            s1.getShare(), s1.getMacs().get((byte) s2.getId()),
+                            s2.getMacKeys().get((byte) s1.getId()));
+                    a[s1.getId()] += accepts[s1.getId()][s2.getId()] ? 1 : 0;
+                } catch (Exception e) {
+                    throw new ImpossibleException(e);
+                } // catch faulty shares
+            }
+            if (a[s1.getId()] < k) {
+                queue.add(s1.getId());
+            } else {
+                valid.add(s1.getShare());
+            }
+        }
+
+        while (valid.size() >= k && !queue.isEmpty()) {
+            int s1id = queue.poll();
+            for (Iterator<Share> it = valid.iterator(); it.hasNext();) {
+                Share s2 = it.next();
+                if (accepts[s2.getId()][s1id]) {
+                    a[s2.getId()]--;
+                    if (a[s2.getId()] < k) {
+                        queue.add(s2.getId());
+                        it.remove();
+                    }
+                }
+            }
+        }
+
+        if (valid.size() >= k) {
+            return sharing.reconstruct(valid.toArray(new Share[valid.size()]));
+        } else {
+            throw new ReconstructionException();
+        }
     }
     
     /**
